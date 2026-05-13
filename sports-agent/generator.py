@@ -88,7 +88,7 @@ def generate_md(
         if has_scores:
             lines.append("## 昨日/今日 比赛结果")
             lines.append("")
-            for league in ["NBA", "英超"]:
+            for league in ["NBA", "英超", "中超"]:
                 league_games = scores.get(league, [])
                 if not league_games:
                     continue
@@ -146,7 +146,7 @@ def generate_push_text(
 
     # ─── 比赛结果（一句话摘要） ──────────────────────────
     if scores:
-        for league in ["NBA", "英超"]:
+        for league in ["NBA", "英超", "中超"]:
             games = scores.get(league, [])
             today_games = [
                 g for g in games

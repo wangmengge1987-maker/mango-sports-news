@@ -83,9 +83,12 @@ SCORE_SOURCES = {
         "url": "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard",
         "enabled": True,
     },
-    # 以下需要单独的语言/区域参数，暂不启用
+    "中超": {
+        "url": "https://site.api.espn.com/apis/site/v2/sports/soccer/chn.1/scoreboard",
+        "enabled": True,
+    },
+    # CBA 暂无全球免费接口，后期可通过国内 API 接入
     "CBA": {"enabled": False},
-    "中超": {"enabled": False},
 }
 
 # ─── 推送配置（PushPlus：pushplus.plus）───────────────────
