@@ -1,0 +1,47 @@
+name: 每日体育简报
+
+on:
+  schedule:
+    # 北京时间 10:00 = UTC 02:00（中国固定 UTC+8，无夏令时）
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # 支持在 GitHub Web 界面手动触发
+
+env:
+  TZ: Asia/Shanghai
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: |
+          cd sports-agent
+          pip install -r requirements.txt
+
+      - name: 生成简报并推送微信
+        run: |
+          cd sports-agent
+          python main.py --push
+        env:
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+
+      - name: 存档简报到仓库
+        run: |
+          git config user.name "mango-sports-bot"
+          git config user.email "bot@mango.dev"
+          git add sports-agent/output/
+          git commit -m "每日简报 $(date +'%Y-%m-%d')" || echo "无变更"
+          git push
