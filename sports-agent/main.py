@@ -18,6 +18,7 @@ from collector import collect_all
 from scores import collect_scores
 from generator import generate_md, generate_push_text, save_md
 from pusher import push_to_wechat
+from translator import batch_translate, translate_classified
 
 
 def main():
@@ -62,15 +63,19 @@ def main():
     print("=" * 50)
 
     # 1. 采集 RSS 新闻
-    print("\n[Step 1/3] 采集新闻...")
+    print("\n[Step 1/4] 采集新闻...")
     classified = collect_all()
 
+    # 1.5 翻译新闻
+    print("\n[Step 2/4] 翻译新闻...")
+    translate_classified(classified)
+
     # 2. 采集比分
-    print("\n[Step 2/3] 采集比分...")
+    print("\n[Step 3/4] 采集比分...")
     scores = collect_scores()
 
     # 3. 生成简报
-    print("\n[Step 3/3] 生成简报...")
+    print("\n[Step 4/4] 生成简报...")
     md_content = generate_md(classified, scores)
     saved_path = save_md(md_content, date_str)
 

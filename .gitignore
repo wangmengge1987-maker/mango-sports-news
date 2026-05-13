@@ -2,6 +2,9 @@
 .env
 **/.env
 
+# 翻译缓存
+**/.trans_cache/
+
 # Python 缓存
 __pycache__/
 *.pyc

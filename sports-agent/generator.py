@@ -112,14 +112,15 @@ def generate_md(
 
         sorted_items = sorted(items, key=lambda x: x["published"], reverse=True)
         for idx, item in enumerate(sorted_items[:config.MAX_ITEMS_PER_CATEGORY], 1):
-            title = item["title"].strip()
-            summary = clean_html(item["summary"])[:200]
+            title = (item.get("title_cn") or item["title"]).strip()
+            summary = clean_html(item.get("summary_cn") or item["summary"])[:200]
+            raw_summary = clean_html(item.get("summary_cn") or item["summary"])
             link = item["link"]
             pub = item["published"].strftime("%m-%d %H:%M") if item["published"] else "未知时间"
             source = item.get("source", "未知来源")
 
             lines.append(f"{idx}. **{title}**")
-            lines.append(f"   - {summary}{'...' if len(clean_html(item['summary'])) > 200 else ''}")
+            lines.append(f"   - {summary}{'...' if len(raw_summary) > 200 else ''}")
             lines.append(f"   - {source} | {pub}")
             lines.append(f"   - [原文链接]({link})")
             lines.append("")
@@ -166,7 +167,7 @@ def generate_push_text(
         lines.append(f"**{cat}:**")
         sorted_items = sorted(items, key=lambda x: x["published"], reverse=True)
         for item in sorted_items[:3]:
-            title = clean_html(item["title"].strip())
+            title = clean_html((item.get("title_cn") or item["title"]).strip())
             lines.append(f"  - {title}")
         lines.append("")
 
