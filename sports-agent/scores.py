@@ -32,12 +32,16 @@ def _fetch_espn_scoreboard(url: str) -> List[Dict[str, Any]]:
             if len(competitors) < 2:
                 continue
 
-            home = competitors[0] if competitors[0].get("homeAway") == "home" else competitors[1]
-            away = competitors[1] if competitors[0].get("homeAway") == "away" else competitors[0]
+            home = next(c for c in competitors if c.get("homeAway") == "home")
+            away = next(c for c in competitors if c.get("homeAway") == "away")
 
             home_score = home.get("score", "")
             away_score = away.get("score", "")
             status = comp.get("status", {}).get("type", {}).get("description", "")
+
+            # 只保留已完赛的比赛（跳过 Scheduled / In Progress）
+            if status not in ("Final", "Finished"):
+                continue
 
             game = {
                 "home_team": home.get("team", {}).get("displayName", ""),
