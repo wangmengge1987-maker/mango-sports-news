@@ -2,8 +2,8 @@ name: 每日体育简报
 
 on:
   schedule:
-    # 北京时间 10:00 = UTC 02:00（中国固定 UTC+8，无夏令时）
-    - cron: '0 2 * * *'
+    # 北京时间 10:17 = UTC 02:17（避开整点拥堵，GitHub Actions scheduler 延迟更低）
+    - cron: '17 2 * * *'
   workflow_dispatch:
     # 支持在 GitHub Web 界面手动触发
 

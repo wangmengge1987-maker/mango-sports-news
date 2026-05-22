@@ -68,9 +68,11 @@ RSS_SOURCES = [
     {"name": "Sky Sports NBA", "url": "https://www.skysports.com/rss/12040",          "hint": "NBA",  "lang": "en"},
     {"name": "Sky Sports Football", "url": "https://www.skysports.com/rss/11095",     "hint": "足球",  "lang": "en"},
     {"name": "The Guardian Sport",  "url": "https://www.theguardian.com/uk/sport/rss","hint": "综合",  "lang": "en"},
-    # 中文源（部分可能不稳定，视网络环境启用）
-    {"name": "新浪体育 NBA",   "url": "https://rss.sina.com.cn/sports/basketball/nba.xml",    "hint": "NBA", "lang": "zh"},
-    {"name": "新浪体育 综合",  "url": "https://rss.sina.com.cn/sports/general.xml",            "hint": "综合", "lang": "zh"},
+    {"name": "Yahoo Sports NBA","url": "https://sports.yahoo.com/nba/rss.xml",         "hint": "NBA",  "lang": "en"},
+    # 中文源
+    {"name": "百度体育 中国足球", "url": "http://news.baidu.com/n?cmd=1&class=chinasoccer&tn=rss", "hint": "中超", "lang": "zh"},
+    {"name": "百度体育 国际足球", "url": "http://news.baidu.com/n?cmd=1&class=worldsoccer&tn=rss",  "hint": "足球", "lang": "zh"},
+    {"name": "百度体育 篮球",    "url": "http://news.baidu.com/n?cmd=1&class=nba&tn=rss",           "hint": "NBA/CBA", "lang": "zh"},
 ]
 
 # ─── 赛事比分 API（ESPN 公开接口，无需 Key）───────────────
@@ -90,6 +92,15 @@ SCORE_SOURCES = {
     # CBA 暂无全球免费接口，后期可通过国内 API 接入
     "CBA": {"enabled": False},
 }
+
+# ─── 懂球帝搜索 API（中文体育新闻，无需 Key）───────────────
+DONGQIUDI_SOURCES = [
+    {"name": "懂球帝 中超", "keywords": "中超", "enabled": True},
+    {"name": "懂球帝 CBA", "keywords": "CBA", "enabled": True},
+    {"name": "懂球帝 中国篮球", "keywords": "篮球 CBA 中国男篮", "enabled": True},
+    {"name": "懂球帝 中国足球", "keywords": "中国足球 国足", "enabled": True},
+]
+DONGQIUDI_MAX_ITEMS = 10  # 每个关键词最多取前 N 条
 
 # ─── 推送配置（PushPlus：pushplus.plus）───────────────────
 # 优先从环境变量读取，如未设置则尝试改配置文件中的占位

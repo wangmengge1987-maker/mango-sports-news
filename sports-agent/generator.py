@@ -2,6 +2,7 @@
 """Markdown 简报生成器 — 支持比赛结果 + 新闻 + 推送版"""
 
 import os
+import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from html.parser import HTMLParser
@@ -119,8 +120,13 @@ def generate_md(
             pub = item["published"].strftime("%m-%d %H:%M") if item["published"] else "未知时间"
             source = item.get("source", "未知来源")
 
-            lines.append(f"{idx}. **{title}**")
-            lines.append(f"   - {summary}{'...' if len(raw_summary) > 200 else ''}")
+            # 比赛报道 → 用一句话结果替换原标题
+            game_result = _extract_game_result(item)
+            display_title = game_result if game_result else title
+
+            lines.append(f"{idx}. **{display_title}**")
+            if not game_result:
+                lines.append(f"   - {summary}{'...' if len(raw_summary) > 200 else ''}")
             lines.append(f"   - {source} | {pub}")
             lines.append(f"   - [原文链接]({link})")
             lines.append("")
@@ -129,6 +135,122 @@ def generate_md(
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _is_useful_title(title: str) -> bool:
+    """推送标题质量检查：跳过太短、纯视频、翻译劣质的标题"""
+    t = title.strip()
+    if len(t) < 8:
+        return False
+    # 视频类关键词
+    if re.search(r"(精彩视频|视频集锦|每周.*视频|录像|回放|highlight|集锦$)", t, re.IGNORECASE):
+        return False
+    # 逐词硬译标志：X的Y的（如"森林狼队的五花八门的队伍"）
+    if re.search(r"\w+的\w+的", t):
+        return False
+    return True
+
+
+def _extract_game_result(item: Dict[str, Any]) -> Optional[str]:
+    """从比赛报道摘要中提取一句话结果：比分、胜负、关键信息"""
+    title = clean_html((item.get("title_cn") or item["title"]).strip())
+    summary = clean_html(item.get("summary_cn") or item.get("summary", ""))
+    text = f"{title}. {summary}"
+
+    # 查找比分模式: 1-0, 112-108, 3比1
+    score = None
+    m = re.search(r'(\d+)\s*[-–—]\s*(\d+)', text)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        # 双方 >= 50 可能是生涯战绩（如"going 189-221"），需额外确认比赛语境
+        is_game_context = bool(re.search(
+            r"(defeated|beat\b|won\b|win\b|victory|score|goal|击败|战胜|胜\s|负\s|比赛|进球)",
+            text, re.IGNORECASE,
+        ))
+        if a < 50 or b < 50 or is_game_context:
+            score = m.group(0)
+    if not score:
+        m = re.search(r'(\d+)\s*比\s*(\d+)', text)
+        if m:
+            score = f"{m.group(1)}-{m.group(2)}"
+
+    if not score:
+        return None
+
+    # 只在前 300 字符内查找（比赛报道首个句子就包含比分）
+    head = text[:300]
+    sentences = re.split(r'(?<=[.!?。！？])\s*', head)
+    for s in sentences:
+        if score.replace(' ', '') in s.replace(' ', '') or score in s:
+            result = s.strip().strip('*"\'"" ').strip()
+            if len(result) > 100:
+                result = result[:97] + "..."
+            return result
+
+    return None
+
+
+_TRAILING_ELLIPSIS = re.compile(r"[….]{2,}\s*$")
+
+
+_LIST_ARTICLE_PATTERN = re.compile(
+    r'(\d+\s*(?:件事|个问题|个看点|个话题|个关注|大看点|things|ways|reasons|'
+    r'to\s*watch|to\s*know|stories|moments|players|questions))',
+    re.IGNORECASE,
+)
+
+
+def _article_one_liner(item: Dict[str, Any]) -> str:
+    """生成一句话文章概要：比赛结果优先 → 全文背景 → 摘要首句 → 清理后的标题"""
+    # 1. 比赛报道 → 比分结果
+    game = _extract_game_result(item)
+    if game:
+        return game
+
+    title = clean_html((item.get("title_cn") or item["title"]).strip())
+    summary = clean_html(item.get("summary_cn") or item.get("summary", ""))
+
+    # 2. 优先使用抓取到的全文背景（包含故事的"为什么"）
+    full_context = item.get("full_context", "")
+    if full_context and len(full_context) > 30:
+        result = f"{title} —— {full_context}"
+        if len(result) > 300:
+            result = result[:297] + "..."
+        return result
+
+    # 3. 从摘要中提取内容
+    if summary and len(summary) > 25:
+        clean_summary = re.sub(r'\s+', ' ', summary).strip()
+        sentences = re.split(r'(?<=[.!?。！？])\s*', clean_summary)
+
+        # 列表类文章（"X件事/个看点"）：提取更多具体内容
+        if _LIST_ARTICLE_PATTERN.search(title):
+            excerpt = ""
+            for s in sentences:
+                s = s.strip().strip('"\'""')
+                if not s or len(s) < 8:
+                    continue
+                if len(excerpt) + len(s) > 250:
+                    break
+                excerpt += s + " "
+            excerpt = excerpt.strip()
+            if len(excerpt) > 30:
+                if len(excerpt) > 250:
+                    excerpt = excerpt[:247] + "..."
+                return excerpt
+
+        # 普通文章：提取第一句有信息量的句子
+        first = sentences[0].strip() if sentences else ""
+        first = re.sub(r'^[""\'""]+|[""\'""]+$', "", first).strip()
+        first = _TRAILING_ELLIPSIS.sub("", first).strip()
+        if len(first) > 15:
+            if len(first) > 120:
+                first = first[:117] + "..."
+            return first
+
+    # 4. 回退：清理原标题
+    title = _TRAILING_ELLIPSIS.sub("", title).strip()
+    return title if len(title) >= 8 else ""
 
 
 def generate_push_text(
@@ -144,19 +266,31 @@ def generate_push_text(
         "",
     ]
 
-    # ─── 比赛结果（一句话摘要） ──────────────────────────
+    # ─── 比赛结果（含球员亮点） ──────────────────────────
     if scores:
         for league in ["NBA", "英超", "中超"]:
             games = scores.get(league, [])
-            today_games = [
-                g for g in games
-                if g.get("date", "").startswith(today)
-            ]
-            if today_games:
-                lines.append(f"**{league} 今日赛果:**")
-                for g in today_games:
-                    lines.append(f"  {g['away_team']} {g['away_score']} - {g['home_score']} {g['home_team']} ({g['status']})")
-                lines.append("")
+            # 显示最近 N 天的完赛结果（不限于今天）
+            recent = sorted(games, key=lambda g: g.get("date", ""), reverse=True)[:6]
+            if not recent:
+                continue
+
+            lines.append(f"**{league} 赛果:**")
+            for g in recent:
+                score_line = (f"  {g['away_team']} {g['away_score']} - "
+                              f"{g['home_score']} {g['home_team']}")
+                lines.append(score_line)
+
+                # 球员亮点
+                hl = _format_highlights(g, league)
+                if hl:
+                    lines.append(f"    {hl}")
+                # 发挥失常 / 空砍
+                ll = _format_lowlights(g)
+                if ll:
+                    lines.append(f"    {ll}")
+
+            lines.append("")
 
     # ─── 新闻摘要 ──────────────────────────────────────
     priority_order = ["NBA", "CBA", "英超", "中超", "伤病", "转会"]
@@ -166,9 +300,17 @@ def generate_push_text(
             continue
         lines.append(f"**{cat}:**")
         sorted_items = sorted(items, key=lambda x: x["published"], reverse=True)
-        for item in sorted_items[:3]:
-            title = clean_html((item.get("title_cn") or item["title"]).strip())
-            lines.append(f"  - {title}")
+        count = 0
+        for item in sorted_items:
+            if count >= 3:
+                break
+            one_liner = _article_one_liner(item)
+            if not one_liner or not _is_useful_title(one_liner):
+                continue
+            lines.append(f"  - {one_liner}")
+            count += 1
+        if count == 0:
+            lines.pop()  # remove the category header
         lines.append("")
 
     text = "\n".join(lines)
@@ -177,6 +319,87 @@ def generate_push_text(
         text = text[:config.MAX_PUSH_LENGTH] + "\n\n..."
 
     return text
+
+
+_CATEGORY_LABELS = {
+    "points": "分",
+    "goals": "进球",
+    "goalsLeaders": "进球",
+    "assists": "助攻",
+    "rebounds": "篮板",
+    "rating": "评分",
+}
+
+
+def _format_lowlights(game: dict) -> str:
+    """从比赛数据中找出"空砍"或发挥失常的情况"""
+    highlights = game.get("highlights", {})
+    if not highlights:
+        return ""
+
+    home_score = int(game.get("home_score", 0) or 0)
+    away_score = int(game.get("away_score", 0) or 0)
+
+    # 找出输球方 —— 那就是"空砍"
+    losing_side = None
+    if home_score < away_score:
+        losing_side = "home"
+    elif away_score < home_score:
+        losing_side = "away"
+
+    if not losing_side:
+        return ""
+
+    team_hl = highlights.get(losing_side, [])
+    # 篮球找 "points"，足球找 "goals"
+    top_scorer = next(
+        (h for h in team_hl if h["category"] in ("points", "goals", "goalsLeaders")),
+        None,
+    )
+    if top_scorer:
+        diff = abs(home_score - away_score)
+        unit = "分" if top_scorer["category"] == "points" else "球"
+        return f"[注意] {top_scorer['player']} 独进{top_scorer['value']}{unit}，球队仍输{diff}分"
+
+    return ""
+
+
+def _format_highlights(game: dict, league: str) -> str:
+    """从比赛数据中生成球员亮点字符串"""
+    highlights = game.get("highlights", {})
+    if not highlights:
+        return ""
+
+    parts = []
+    seen_players = set()  # 同队同项不重复
+
+    for side, label in [("away", "客"), ("home", "主")]:
+        team_hl = highlights.get(side, [])
+        if not team_hl:
+            continue
+
+        for h in team_hl:
+            player = h["player"]
+            if player in seen_players:
+                continue
+            seen_players.add(player)
+
+            # 整理数值：浮点转整数
+            raw = h["value"]
+            val = int(raw) if isinstance(raw, (int, float)) and raw == int(raw) else raw
+
+            label_text = _CATEGORY_LABELS.get(h["category"], h["category"])
+            parts.append(f"{player} {val}{label_text}")
+
+    if not parts:
+        return ""
+
+    # 取前 4 条最有价值的数据
+    result = " | ".join(parts[:4])
+    if len(result) > 150:
+        result = result[:147] + "..."
+
+    return f"[球员] {result}"
 
 
 def save_md(content: str, date_str: str = None) -> str:

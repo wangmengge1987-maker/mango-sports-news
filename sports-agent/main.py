@@ -11,6 +11,7 @@
 
 import argparse
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -19,6 +20,35 @@ from scores import collect_scores
 from generator import generate_md, generate_push_text, save_md
 from pusher import push_to_wechat
 from translator import batch_translate, translate_classified
+
+
+_REVIEW_PATTERNS = [
+    # 列表类标题但没有具体内容
+    (r'\d+\s*(件事|个问题|个看点|things|ways|reasons|to watch)', "列表类标题缺少具体内容"),
+    # 手术/医疗新闻缺少病因说明
+    (r'(手术|surgery|transplant|移植|heart)', "医疗类新闻 — 检查是否说明了病因/背景"),
+    # 标题太短（可能是劣质翻译）
+    (r'^.{1,15}$', "标题过短，可能信息不足"),
+]
+
+
+def _review_push_content(push_text: str) -> list:
+    """推送前质量检查：找出不清晰、需要补充的内容"""
+    notes = []
+    for line in push_text.split('\n'):
+        line = line.strip()
+        # 跳过非内容行
+        if not line.startswith('- ') and not line.startswith('  - '):
+            continue
+        content = line.lstrip('- ').strip()
+        if not content:
+            continue
+        for pattern, msg in _REVIEW_PATTERNS:
+            if re.search(pattern, content, re.IGNORECASE):
+                # 检查是否已经有完整上下文（含 full_context）
+                if "——" not in content:
+                    notes.append(f"[{msg}] {content[:60]}...")
+    return notes
 
 
 def main():
@@ -63,26 +93,50 @@ def main():
     print("=" * 50)
 
     # 1. 采集 RSS 新闻
-    print("\n[Step 1/4] 采集新闻...")
+    print("\n[Step 1/5] 采集新闻...")
     classified = collect_all()
 
-    # 1.5 翻译新闻
-    print("\n[Step 2/4] 翻译新闻...")
+    # 2. 翻译新闻
+    print("\n[Step 2/5] 翻译新闻...")
     translate_classified(classified)
 
-    # 2. 采集比分
-    print("\n[Step 3/4] 采集比分...")
+    # 3. 补充文章全文（对摘要不清晰的条目，读懂背景后再总结）
+    print("\n[Step 3/5] 补充文章全文背景...")
+    from article_reader import needs_full_text, get_context_summary
+    fetch_count = 0
+    for items in classified.values():
+        for item in items:
+            if needs_full_text(item) and fetch_count < 8:
+                context = get_context_summary(item)
+                if context:
+                    item["full_context"] = context
+                    fetch_count += 1
+                    print(f"  [OK] {item.get('source','?')}: {context[:50]}...")
+    if fetch_count == 0:
+        print("  [INFO] 全部条目摘要已足够，无需补充")
+
+    # 4. 采集比分（含球员表现数据）
+    print("\n[Step 4/5] 采集比分及球员数据...")
     scores = collect_scores()
 
-    # 3. 生成简报
-    print("\n[Step 4/4] 生成简报...")
+    # 5. 生成简报
+    print("\n[Step 5/5] 生成简报...")
     md_content = generate_md(classified, scores)
     saved_path = save_md(md_content, date_str)
 
-    # 4. 推送
+    # 4. 推送前 Review
+    print("\n[Review] 检查简报质量...")
+    push_text = generate_push_text(classified, scores)
+    review_notes = _review_push_content(push_text)
+    if review_notes:
+        for note in review_notes:
+            print(f"  [!] {note}")
+    else:
+        print("  [OK] 简报内容清晰，无需调整")
+
+    # 5. 推送
     if args.push:
         print("\n[推送] 正在发送到微信...")
-        push_text = generate_push_text(classified, scores)
         push_to_wechat(push_title, push_text)
     else:
         print("\n[INFO] 未指定 --push，跳过推送")

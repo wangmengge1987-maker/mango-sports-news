@@ -48,6 +48,36 @@ def _is_mostly_english(text: str) -> bool:
     return cjk / total < 0.3
 
 
+def _is_gibberish_translation(text: str) -> bool:
+    """判断中文翻译是否疑似劣质（语无伦次 / 无效信息）"""
+    if not text:
+        return False
+    # Pattern: X的Y的 表明逐词硬译（如 "森林狼队的五花八门的队伍"）
+    if re.search(r"\w+的\w+的", text):
+        return True
+    # 包含未翻译的英文长词（>=2 个 6 字母以上的英文词）
+    en_words = re.findall(r"[a-zA-Z]{6,}", text)
+    if len(en_words) >= 2:
+        return True
+    return False
+
+
+def _fix_sports_translation(original_en: str, translated_cn: str) -> str:
+    """修正体育术语翻译错误（如 rugby prop → 道具 → 橄榄球）"""
+    if not original_en or not translated_cn:
+        return translated_cn
+    text = translated_cn
+
+    # 橄榄球: "prop"（支柱前锋）被误译为"道具"
+    if re.search(r'\b(rugby|prop)\b', original_en, re.IGNORECASE):
+        text = re.sub(r'\b道具\b', '橄榄球', text)
+        # 把"威尔士橄榄球"改得通顺一些
+        text = text.replace('威尔士的橄榄球', '威尔士橄榄球运动员')
+        text = text.replace('前威尔士橄榄球运动员的', '前威尔士橄榄球运动员')
+
+    return text
+
+
 def translate_text(text: str, src: str = "auto", dst: str = "zh") -> str:
     """翻译单段文本，失败则返回原文"""
     if not text or not _is_mostly_english(text):
@@ -62,8 +92,13 @@ def translate_text(text: str, src: str = "auto", dst: str = "zh") -> str:
         import translators as ts
         result = ts.translate_text(text, translator="bing", from_language=src, to_language=dst)
         if result and result.strip():
-            _cache_set(key, result.strip())
-            return result.strip()
+            translated = result.strip()
+            # 质量检查：劣质翻译则退回原文
+            if _is_gibberish_translation(translated):
+                print(f"  [WARN] 翻译质量过低，退回原文: {translated[:40]}...")
+                return text
+            _cache_set(key, translated)
+            return translated
         return text
     except Exception as e:
         print(f"  [WARN] 翻译失败: {e}")
@@ -88,7 +123,7 @@ def batch_translate(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         title_en = entry.get("title", "")
         title_cn = translate_text(title_en)
         if title_cn and title_cn != title_en:
-            entry["title_cn"] = title_cn
+            entry["title_cn"] = _fix_sports_translation(title_en, title_cn)
         else:
             entry["title_cn"] = title_en
 
@@ -98,7 +133,7 @@ def batch_translate(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         summary_trunc = summary_en[:500]
         summary_cn = translate_text(summary_trunc)
         if summary_cn and summary_cn != summary_trunc:
-            entry["summary_cn"] = summary_cn
+            entry["summary_cn"] = _fix_sports_translation(summary_trunc, summary_cn)
         else:
             entry["summary_cn"] = summary_en
 
