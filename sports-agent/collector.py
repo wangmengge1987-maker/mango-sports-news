@@ -110,13 +110,10 @@ def fetch_dongqiudi(keyword: str, max_items: int = 10) -> List[Dict[str, Any]]:
 def fetch_rss(url: str, timeout: int = 15) -> List[Dict[str, Any]]:
     """抓取 RSS 并返回标准化条目列表"""
     try:
-        # 先用 feedparser 解析
-        parsed = feedparser.parse(url, request_headers={"User-Agent": "Mozilla/5.0"})
-        if parsed.bozo and not parsed.entries:
-            # fallback: requests 拉取原始 XML 再解析
-            resp = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
-            resp.raise_for_status()
-            parsed = feedparser.parse(resp.text)
+        # 先用 requests（支持超时）拉取，再交给 feedparser 解析
+        resp = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        parsed = feedparser.parse(resp.text)
 
         entries = []
         for entry in parsed.entries:
