@@ -2,8 +2,8 @@ name: 每日穿搭建议
 
 on:
   schedule:
-    # 北京时间 07:17 = UTC 23:17（避开整点）
-    - cron: '17 23 * * *'
+    # 北京时间 07:57 = UTC 23:57（避开整点和半点）
+    - cron: '57 23 * * *'
   workflow_dispatch:
 
 env:
