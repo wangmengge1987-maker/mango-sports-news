@@ -31,6 +31,20 @@ def needs_full_text(item: dict) -> bool:
     if len(summary) < 50 and len(title) > 20:
         return True
 
+    # 摘要被截断：不以句号/感叹号/问号结尾，且以英文词结尾
+    if summary and len(summary) > 20:
+        if not re.search(r'[。！？.!?]\s*$', summary) and re.search(r'[A-Za-z]{2,}$', summary):
+            return True
+
+    # 标题中有具体人名/队名，但摘要中用代词替代（"他" "她" "它"）
+    if title and summary:
+        title_entities = set(re.findall(r'[一-鿿]{2,6}', title))
+        summary_entities = set(re.findall(r'[一-鿿]{2,6}', summary))
+        if title_entities and summary_entities:
+            # 如果摘要中的实体远少于标题，可能需要补充全文
+            if len(summary_entities) < len(title_entities) * 0.5 and len(title_entities) >= 2:
+                return True
+
     return False
 
 

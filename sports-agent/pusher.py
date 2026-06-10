@@ -32,9 +32,13 @@ def push_to_wechat(title: str, content: str) -> bool:
         print(f"[INFO] 可设置环境变量 PUSHPLUS_TOKEN 或在 config.py 中配置")
         return False
 
-    # 截断过长的内容
+    # 截断过长的内容（在行边界截断，避免切断新闻条目）
     if len(content) > config.MAX_PUSH_LENGTH:
-        content = content[:config.MAX_PUSH_LENGTH] + "\n\n... (内容过长已截断)"
+        content = content[:config.MAX_PUSH_LENGTH]
+        last_nl = content.rfind('\n')
+        if last_nl > 0:
+            content = content[:last_nl]
+        content += "\n\n...(内容较长，已截断保留主要摘要)"
 
     payload = {
         "token": token,

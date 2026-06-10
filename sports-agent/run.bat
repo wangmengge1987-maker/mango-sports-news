@@ -17,4 +17,8 @@ if %errorlevel% neq 0 (
     echo [成功] 完成
 )
 
-pause
+REM 仅在交互式命令行中暂停，计划任务中不等待
+echo %SESSIONNAME% | findstr /i "Console" > nul
+if not errorlevel 1 (
+    pause
+)

@@ -201,7 +201,7 @@ _LIST_ARTICLE_PATTERN = re.compile(
 
 
 def _article_one_liner(item: Dict[str, Any]) -> str:
-    """生成一句话文章概要：比赛结果优先 → 全文背景 → 摘要首句 → 清理后的标题"""
+    """生成一句话文章概要：比赛结果优先 → 全文背景 → 标题+摘要组合 → 回退标题"""
     # 1. 比赛报道 → 比分结果
     game = _extract_game_result(item)
     if game:
@@ -218,9 +218,37 @@ def _article_one_liner(item: Dict[str, Any]) -> str:
             result = result[:297] + "..."
         return result
 
-    # 3. 从摘要中提取内容
+    # 3. 从摘要中提取内容（但要检查摘要是否完整/含必要信息）
     if summary and len(summary) > 25:
         clean_summary = re.sub(r'\s+', ' ', summary).strip()
+
+        # 检查摘要是否截断（不以句号/感叹号/问号/完整英文单词结尾）
+        _is_truncated = (
+            not re.search(r'[。！？.!?]\s*$', clean_summary)
+            and re.search(r'[a-zA-Z]{2,}$', clean_summary)  # 以英文词结尾 → 可能截断
+        )
+
+        # 检查标题中的关键信息是否在摘要中缺失
+        # 提取标题中的中文人名/队名（2-6字的中文词语）
+        title_entities = set(re.findall(r'[一-鿿]{2,6}', title))
+        # 提取摘要中同样长度的中文词语
+        summary_entities = set(re.findall(r'[一-鿿]{2,6}', clean_summary))
+        # 标题中出现在摘要之外的关键实体
+        missing_entities = title_entities - summary_entities
+
+        # 如果摘要截断，或关键信息缺失，优先用标题
+        if _is_truncated or (missing_entities and len(title) >= 8):
+            # 用标题为主，摘要补充
+            result = title
+            # 取摘要的第一句作为补充（但不包含截断部分）
+            first_sentence = clean_summary.split('。')[0].strip() if '。' in clean_summary else clean_summary[:40]
+            if len(first_sentence) > 10 and first_sentence not in result:
+                if len(result) + len(first_sentence) + 3 < 120:
+                    result = f"{result}：{first_sentence}"
+            if len(result) > 120:
+                result = result[:117] + "..."
+            return result
+
         sentences = re.split(r'(?<=[.!?。！？])\s*', clean_summary)
 
         # 列表类文章（"X件事/个看点"）：提取更多具体内容
@@ -244,13 +272,24 @@ def _article_one_liner(item: Dict[str, Any]) -> str:
         first = re.sub(r'^[""\'""]+|[""\'""]+$', "", first).strip()
         first = _TRAILING_ELLIPSIS.sub("", first).strip()
         if len(first) > 15:
+            # 检查第一句是否包含代词而非具体名称
+            _has_vague_pronoun = bool(re.search(r'[他她它]', first)) and not any(
+                e in first for e in title_entities
+            )
+            if _has_vague_pronoun:
+                # 摘要以代词开头但缺具体名称 → 补充标题
+                if len(title) + len(first) + 3 < 120:
+                    return f"{title}：{first}"
             if len(first) > 120:
                 first = first[:117] + "..."
             return first
 
-    # 4. 回退：清理原标题
+    # 4. 回退：清理原标题（确保完整表述）
     title = _TRAILING_ELLIPSIS.sub("", title).strip()
-    return title if len(title) >= 8 else ""
+    # 确保标题包含完整信息（长度足够且有具体内容）
+    if len(title) >= 8 and not re.match(r'^[他她它这那]', title):
+        return title
+    return title if len(title) >= 12 else ""
 
 
 def generate_push_text(
@@ -316,7 +355,12 @@ def generate_push_text(
     text = "\n".join(lines)
 
     if len(text) > config.MAX_PUSH_LENGTH:
-        text = text[:config.MAX_PUSH_LENGTH] + "\n\n..."
+        # 在行边界截断：取前 MAX_PUSH_LENGTH 字符范围内最后一个换行符位置
+        text = text[:config.MAX_PUSH_LENGTH]
+        last_nl = text.rfind('\n')
+        if last_nl > 0:
+            text = text[:last_nl]
+        text += "\n\n...(内容较长，已截断保留主要摘要)"
 
     return text
 

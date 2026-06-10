@@ -15,11 +15,16 @@ import re
 import sys
 from datetime import datetime
 
-from collector import collect_all
+from collector import collect_all, filter_classified_after_translation
 from scores import collect_scores
 from generator import generate_md, generate_push_text, save_md
 from pusher import push_to_wechat
 from translator import batch_translate, translate_classified
+from history import (
+    load_history, save_history, prune_history, reset_history,
+    load_hash_history, save_hash_history, prune_hash_history,
+)
+import config
 
 
 _REVIEW_PATTERNS = [
@@ -57,7 +62,20 @@ def main():
     parser.add_argument("--force", action="store_true", help="强制覆盖已有文件")
     parser.add_argument("--push", action="store_true", help="生成后推送到微信")
     parser.add_argument("--push-only", action="store_true", help="仅推送已有简报，不重新生成")
+    parser.add_argument("--reset-history", action="store_true", help="清空文章历史记录")
     args = parser.parse_args()
+
+    # ── 清空历史模式 ────────────────────────────────────────
+    if args.reset_history:
+        url_count = reset_history()
+        print(f"[INFO] 已清空文章 URL 历史记录（{url_count} 条）")
+        # 也清空内容哈希历史
+        import os as _os
+        hash_file = _os.path.join("output", ".content_hash_history.json")
+        if _os.path.exists(hash_file):
+            _os.remove(hash_file)
+            print(f"[INFO] 已清空内容哈希历史记录")
+        return 0
 
     date_str = args.date or datetime.now().strftime("%Y-%m-%d")
     filepath = os.path.join("output", f"{date_str}-今日体育简报.md")
@@ -94,11 +112,20 @@ def main():
 
     # 1. 采集 RSS 新闻
     print("\n[Step 1/5] 采集新闻...")
-    classified = collect_all()
+    history_set = load_history()
+    if history_set:
+        print(f"[INFO] 已加载 {len(history_set)} 条历史 URL 记录")
+    hash_history = load_hash_history()
+    if hash_history:
+        print(f"[INFO] 已加载 {len(hash_history)} 条内容哈希记录，将过滤重复内容")
+    classified = collect_all(history_set=history_set, hash_history=hash_history)
 
     # 2. 翻译新闻
     print("\n[Step 2/5] 翻译新闻...")
     translate_classified(classified)
+
+    # 2.5 翻译后日期过滤（补捉中文标题中的"5月2日"等原文不含的日期）
+    classified = filter_classified_after_translation(classified)
 
     # 3. 补充文章全文（对摘要不清晰的条目，读懂背景后再总结）
     print("\n[Step 3/5] 补充文章全文背景...")
@@ -123,6 +150,27 @@ def main():
     print("\n[Step 5/5] 生成简报...")
     md_content = generate_md(classified, scores)
     saved_path = save_md(md_content, date_str)
+
+    # 6. 保存文章历史（跨日去重用）
+    all_urls = set()
+    all_hashes = set()
+    for items in classified.values():
+        for item in items:
+            if item.get("link"):
+                all_urls.add(item["link"])
+            ch = item.get("content_hash")
+            if ch:
+                all_hashes.add(ch)
+    if all_urls:
+        save_history(all_urls)
+        pruned = prune_history(days=config.HISTORY_PRUNE_DAYS)
+        if pruned:
+            print(f"[INFO] 清理了 {pruned} 条过期 URL 历史记录")
+    if all_hashes:
+        save_hash_history(all_hashes)
+        pruned_hash = prune_hash_history(days=45)
+        if pruned_hash:
+            print(f"[INFO] 清理了 {pruned_hash} 条过期内容哈希记录")
 
     # 4. 推送前 Review
     print("\n[Review] 检查简报质量...")
