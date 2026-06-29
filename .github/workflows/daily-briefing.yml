@@ -1,6 +1,8 @@
 name: 每日体育简报
 
 on:
+  schedule:
+    - cron: '0 1 * * *'   # 每天 UTC 1:00 = 北京时间 9:00
   workflow_dispatch:
     # 支持在 GitHub Web 界面手动触发
 
