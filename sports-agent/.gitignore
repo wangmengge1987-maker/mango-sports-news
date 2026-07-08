@@ -7,6 +7,7 @@ __pycache__/
 output/*.md
 output/.article_history.json
 output/.content_hash_history.json
+# output/.last_push_date 被协调机制使用，需要被 Git 跟踪，不能加入此处
 
 # 对话缓存记录
 CLAUDE.md

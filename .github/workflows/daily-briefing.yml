@@ -2,7 +2,9 @@ name: 每日体育简报
 
 on:
   schedule:
-    - cron: '0 1 * * *'   # 每天 UTC 1:00 = 北京时间 9:00
+    # UTC 21:00 = 北京时间 5:00。利用 GH Actions 约 3-4 小时排队延迟，
+    # 实际会在北京时间 9-10 点执行，与本地计划任务（09:55）错开但同属上午。
+    - cron: '0 21 * * *'
   workflow_dispatch:
     # 支持在 GitHub Web 界面手动触发
 
@@ -20,27 +22,55 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      - name: 检查是否已推送（防重复）
+        run: |
+          MARKER="sports-agent/output/.last_push_date"
+          TODAY=$(date +'%Y-%m-%d')
+          if [ -f "$MARKER" ]; then
+            LAST=$(cat "$MARKER")
+            if [ "$LAST" = "$TODAY" ]; then
+              echo "今天 ($TODAY) 已由本地或之前的工作流推送过，跳过"
+              echo "skip=true" >> $GITHUB_ENV
+            else
+              echo "上次推送日期为 $LAST，与今天不同，继续执行"
+              echo "skip=false" >> $GITHUB_ENV
+            fi
+          else
+            echo "未找到推送标记文件，继续执行"
+            echo "skip=false" >> $GITHUB_ENV
+          fi
+
       - name: 设置 Python
+        if: env.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: 安装依赖
+        if: env.skip != 'true'
         run: |
           cd sports-agent
           pip install -r requirements.txt
 
       - name: 生成简报并推送微信
+        if: env.skip != 'true'
         run: |
           cd sports-agent
           python main.py --push
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
 
-      - name: 存档简报到仓库
+      - name: 记录推送日期
+        if: env.skip != 'true'
+        run: |
+          mkdir -p sports-agent/output
+          date +'%Y-%m-%d' > sports-agent/output/.last_push_date
+
+      - name: 存档标记到仓库
+        if: env.skip != 'true'
         run: |
           git config user.name "mango-sports-bot"
           git config user.email "bot@mango.dev"
-          git add sports-agent/output/
-          git commit -m "每日简报 $(date +'%Y-%m-%d')" || echo "无变更"
+          git add sports-agent/output/.last_push_date
+          git commit -m "标记今日简报 $(date +'%Y-%m-%d') 已推送" || echo "无变更"
           git push
